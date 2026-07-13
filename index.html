@@ -384,7 +384,6 @@ async function orLookup(txt){
   if(r.ok){ feed('orFeed', r.msg); el('orFetched').innerHTML=''; }
   else { el('orFetched').innerHTML='<div class="msg err">'+r.msg+'</div>'; }
 }
-
 async function submitOutletReceive(){
   const q=el('orQty').value;
   const r=await api('outletReceive',{session:SESSION,scan:scanned,qty:q});
