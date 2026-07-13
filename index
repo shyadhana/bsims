@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brown Sugar — Inventory Scan</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<style>
+  * { box-sizing:border-box; font-family:'Segoe UI',system-ui,sans-serif; }
+  body { margin:0; background:#0f1720; color:#e6edf3; }
+  .wrap { max-width:900px; margin:0 auto; padding:16px; }
+  h2 { margin:8px 0 12px; } h3 { margin:6px 0; font-size:15px; color:#9fb2c8; }
+  input,select,button { padding:12px; margin:6px 0; border-radius:8px;
+    border:1px solid #2a3441; background:#1a2430; color:#e6edf3; font-size:15px; }
+  input,select { width:100%; }
+  button { background:#2563eb; border:none; font-weight:600; cursor:pointer; }
+  button:active { opacity:.8; } button.alt { background:#334155; } button.green { background:#0f9d58; }
+  button.small { padding:7px 12px; font-size:13px; margin:0; width:auto; }
+  .card { background:#161f2b; border:1px solid #232f3e; border-radius:12px; padding:16px; margin:12px 0; }
+  .role { font-size:12px; color:#8ea0b5; text-transform:uppercase; letter-spacing:1px; }
+  .msg { padding:12px; border-radius:8px; margin:10px 0; font-size:14px; }
+  .ok { background:#0f3d2a; color:#7ee2a8; } .err { background:#3d1616; color:#f3a0a0; }
+  .info { background:#12283f; color:#bcd6f5; border:1px solid #2a4a6f; }
+  .hidden { display:none; }
+  .toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  .toolbar input { flex:1; min-width:160px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid #232f3e; }
+  th { color:#8ea0b5; font-weight:600; position:sticky; top:0; background:#161f2b; }
+  .catBK{color:#7ee2a8;} .catIC{color:#f3a0c0;} .catHK{color:#f0d97e;}
+  .listWrap { max-height:52vh; overflow:auto; border:1px solid #232f3e; border-radius:10px; }
+  #qrStage { position:fixed; left:-9999px; top:0; }
+  .reader { width:100%; max-width:340px; margin:8px auto; border-radius:12px; overflow:hidden; }
+  .fetched { background:#12283f; border:1px solid #2a4a6f; border-radius:10px; padding:12px; margin:8px 0; }
+  .fetched b { color:#e6edf3; }
+  .subtabs { display:flex; gap:8px; margin-bottom:10px; } .subtabs button { flex:1; }
+  .subtabs button.active { background:#0f9d58; }
+  .feed { font-size:13px; margin-top:8px; } .feed div { padding:6px 8px; border-bottom:1px solid #232f3e; color:#7ee2a8; }
+  .spin { opacity:.6; pointer-events:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- LOGIN -->
+  <div id="loginView">
+    <h2>🔐 Inventory Login</h2>
+    <div class="card" style="max-width:420px;">
+      <input id="lid" placeholder="Login ID">
+      <input id="lpw" type="password" placeholder="Password">
+      <button onclick="doLogin()" style="width:100%;">Login</button>
+      <div id="loginMsg"></div>
+    </div>
+  </div>
+
+  <!-- APP -->
+  <div id="appView" class="hidden">
+    <div class="role" id="who"></div>
+    <h2 id="roleTitle"></h2>
+
+    <!-- PRODUCTION -->
+    <div id="prodPanel" class="hidden">
+      <div class="subtabs">
+        <button id="tabPrint" class="active" onclick="prodTab('print')">🖨️ Print QR</button>
+        <button id="tabOut" onclick="prodTab('out')">📤 OUT to Warehouse</button>
+      </div>
+      <div id="prodPrint" class="card">
+        <div class="toolbar">
+          <input id="search" placeholder="Search item / SKU..." oninput="renderList()">
+          <select id="catFilter" onchange="renderList()" style="width:auto;">
+            <option value="">All categories</option>
+            <option value="Bakery">Bakery</option>
+            <option value="Icing">Icing</option>
+            <option value="Hot Kitchen">Hot Kitchen</option>
+          </select>
+          <button class="small" onclick="printSelected()">Print Selected</button>
+          <button class="small alt" onclick="printAllFiltered()">Print All (shown)</button>
+          <button class="small alt" onclick="testPrint()">🧪 Test</button>
+        </div>
+        <div class="listWrap">
+          <table>
+            <thead><tr>
+              <th style="width:34px;"><input type="checkbox" id="chkAll" onclick="toggleAll(this)" style="width:auto;margin:0;"></th>
+              <th>SKU</th><th>Item</th><th>Unit</th><th style="width:70px;">QR</th>
+            </tr></thead>
+            <tbody id="itemBody"></tbody>
+          </table>
+        </div>
+        <div id="prodMsg"></div>
+      </div>
+      <div id="prodOut" class="card hidden">
+        <h3>Scan item → qty → OUT to warehouse</h3>
+        <div id="reader_po" class="reader"></div>
+        <div id="reader_po_file" class="hidden"></div>
+        <button class="alt small camBtn" onclick="toggleCam('reader_po')">📷 Start Camera</button>
+        <label class="alt small" style="display:inline-block;padding:7px 12px;border-radius:8px;cursor:pointer;">📁 Scan from photo
+          <input type="file" accept="image/*" capture="environment" style="display:none" onchange="scanFromFile('reader_po',this)"></label>
+        <div id="poFetched"></div>
+        <div id="poForm" class="hidden">
+          <input id="poQty" type="number" min="1" placeholder="Quantity to OUT">
+          <button class="green" onclick="submitProdOut()">OUT to Warehouse</button>
+        </div>
+        <div id="poFeed" class="feed"></div>
+      </div>
+    </div>
+
+    <!-- WAREHOUSE -->
+    <div id="whPanel" class="card hidden">
+      <h3>Scan item → receivable qty shows → enter receive qty</h3>
+      <div id="reader_wh" class="reader"></div>
+      <div id="reader_wh_file" class="hidden"></div>
+      <button class="alt small camBtn" onclick="toggleCam('reader_wh')">📷 Start Camera</button>
+      <label class="alt small" style="display:inline-block;padding:7px 12px;border-radius:8px;cursor:pointer;">📁 Scan from photo
+        <input type="file" accept="image/*" capture="environment" style="display:none" onchange="scanFromFile('reader_wh',this)"></label>
+      <div id="whFetched"></div>
+      <div id="whForm" class="hidden">
+        <input id="whQty" type="number" min="1" placeholder="Receive quantity">
+        <button class="green" onclick="submitWhReceive()">Receive</button>
+      </div>
+      <div id="whFeed" class="feed"></div>
+    </div>
+
+    <!-- DISPATCH -->
+    <div id="dispPanel" class="card hidden">
+      <h3>Select outlet → continuous scan → qty → submit</h3>
+      <select id="dispOutlet" onchange="dispOutletChanged()"><option value="">— Select outlet —</option></select>
+      <div id="dispScanArea" class="hidden">
+        <div id="reader_dp" class="reader"></div>
+        <div id="reader_dp_file" class="hidden"></div>
+        <button class="alt small camBtn" onclick="toggleCam('reader_dp')">📷 Start Camera</button>
+        <label class="alt small" style="display:inline-block;padding:7px 12px;border-radius:8px;cursor:pointer;">📁 Scan from photo
+          <input type="file" accept="image/*" capture="environment" style="display:none" onchange="scanFromFile('reader_dp',this)"></label>
+        <div id="dpFetched"></div>
+        <div id="dpForm" class="hidden">
+          <input id="dpQty" type="number" min="1" placeholder="Dispatch quantity">
+          <button class="green" onclick="submitDispatch()">Submit &amp; Next</button>
+        </div>
+        <div id="dpFeed" class="feed"></div>
+      </div>
+    </div>
+
+    <!-- OUTLET -->
+    <div id="outletPanel" class="hidden">
+      <div class="subtabs">
+        <button id="tabRecv" class="active" onclick="outletTab('recv')">📥 Receive</button>
+        <button id="tabXfer" onclick="outletTab('xfer')">🔁 Transfer</button>
+      </div>
+      <div id="outletRecv" class="card">
+        <h3>Scan → only items sent to you fetch → receive qty</h3>
+        <div id="reader_or" class="reader"></div>
+        <div id="reader_or_file" class="hidden"></div>
+        <button class="alt small camBtn" onclick="toggleCam('reader_or')">📷 Start Camera</button>
+        <label class="alt small" style="display:inline-block;padding:7px 12px;border-radius:8px;cursor:pointer;">📁 Scan from photo
+          <input type="file" accept="image/*" capture="environment" style="display:none" onchange="scanFromFile('reader_or',this)"></label>
+        <div id="orFetched"></div>
+        <div id="orForm" class="hidden">
+          <input id="orQty" type="number" min="1" placeholder="Receive quantity">
+          <button class="green" onclick="submitOutletReceive()">Receive</button>
+        </div>
+        <div id="orFeed" class="feed"></div>
+      </div>
+      <div id="outletXfer" class="card hidden">
+        <h3>Transfer your stock to another outlet</h3>
+        <select id="xferOutlet"></select>
+        <div id="reader_ox" class="reader"></div>
+        <div id="reader_ox_file" class="hidden"></div>
+        <button class="alt small camBtn" onclick="toggleCam('reader_ox')">📷 Start Camera</button>
+        <label class="alt small" style="display:inline-block;padding:7px 12px;border-radius:8px;cursor:pointer;">📁 Scan from photo
+          <input type="file" accept="image/*" capture="environment" style="display:none" onchange="scanFromFile('reader_ox',this)"></label>
+        <div id="oxFetched"></div>
+        <div id="oxForm" class="hidden">
+          <input id="oxQty" type="number" min="1" placeholder="Transfer quantity">
+          <button class="green" onclick="submitOutletTransfer()">Transfer</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="msg"></div>
+    <button class="alt small" onclick="logout()">Logout</button>
+  </div>
+</div>
+<div id="qrStage"></div>
+
+<script>
+/* ============ CONFIG ============ */
+// Paste your deployed Apps Script Web App URL here (ends with /exec)
+const API_URL = "https://script.google.com/macros/s/AKfycbxLes5CdcLQzQPkZ6ccFpeIK2M7P4-b_aHO-CRxMhS7gt5vMxauo9BE1q2T0U4hrh4A5A/exec";
+
+let SESSION=null, ALL_ITEMS=[], scanned=null;
+let cam=null, camOn=false, camTarget=null;
+
+function el(id){return document.getElementById(id);}
+function show(id){el(id).classList.remove('hidden');}
+function hide(id){el(id).classList.add('hidden');}
+function msg(t,ok){el('msg').innerHTML='<div class="msg '+(ok?'ok':'err')+'">'+t+'</div>';}
+
+/* ============ API CALL ============ */
+// Uses text/plain to avoid CORS preflight against Apps Script.
+async function api(action, payload){
+  const body = Object.assign({action}, payload||{});
+  const res = await fetch(API_URL, {
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify(body)
+  });
+  return res.json();
+}
+
+/* ============ AUTH ============ */
+async function doLogin(){
+  const id=el('lid').value.trim(), pw=el('lpw').value;
+  if(!API_URL || API_URL.indexOf('PASTE_')===0){ el('loginMsg').innerHTML='<div class="msg err">API_URL not set in index.html</div>'; return; }
+  el('loginMsg').innerHTML='<div class="msg info">Logging in…</div>';
+  try{
+    const r=await api('login',{loginId:id,password:pw});
+    if(!r.ok){el('loginMsg').innerHTML='<div class="msg err">'+r.msg+'</div>';return;}
+    SESSION=r.user; el('loginMsg').innerHTML=''; startApp();
+  }catch(e){ el('loginMsg').innerHTML='<div class="msg err">Network error: '+e+'</div>'; }
+}
+function startApp(){
+  hide('loginView'); show('appView');
+  el('who').textContent=SESSION.name+' · '+SESSION.role+(SESSION.outlet?(' · '+SESSION.outlet):'');
+  el('roleTitle').textContent=titleFor(SESSION.role);
+  ['prodPanel','whPanel','dispPanel','outletPanel'].forEach(hide);
+  el('msg').innerHTML='';
+  if(SESSION.role==='PRODUCTION'){ show('prodPanel'); prodTab('print'); loadItems(); }
+  else if(SESSION.role==='WAREHOUSE'){ show('whPanel'); }
+  else if(SESSION.role==='DISPATCH'){ show('dispPanel'); loadOutlets('dispOutlet',true); }
+  else if(SESSION.role==='OUTLET'){ show('outletPanel'); outletTab('recv'); loadOutlets('xferOutlet',false); }
+}
+function titleFor(r){return {PRODUCTION:'🏭 Production',WAREHOUSE:'📦 Warehouse — Receive',
+  DISPATCH:'🚚 Dispatch',OUTLET:'🏪 Outlet ('+(SESSION.outlet||'')+')'}[r]||r;}
+
+/* ============ CAMERA ============ */
+function toggleCam(readerId){
+  if(camOn){ stopCam(); if(camTarget===readerId) return; }
+  camTarget=readerId;
+  cam=new Html5Qrcode(readerId);
+  cam.start({facingMode:"environment"},{fps:10,qrbox:{width:220,height:220}},
+    txt=>onScan(readerId,txt),()=>{})
+    .then(()=>{camOn=true; setCamBtn('⏹ Stop Camera');})
+    .catch(e=>{
+      const n=(e&&e.name)?e.name:String(e);
+      if(n.indexOf('NotAllowed')>=0) msg('Camera permission denied. Allow camera for this site in browser settings, or use "📁 Scan from photo".',false);
+      else if(n.indexOf('NotFound')>=0) msg('No camera found. Use "📁 Scan from photo".',false);
+      else if(n.indexOf('NotReadable')>=0) msg('Camera busy (another app using it). Close it and retry.',false);
+      else msg('Camera error: '+n+'. Try "📁 Scan from photo".',false);
+    });
+}
+function stopCam(){ if(cam&&camOn){ cam.stop().then(()=>{cam.clear();camOn=false;setCamBtn('📷 Start Camera');}).catch(()=>{camOn=false;}); } }
+function setCamBtn(t){ document.querySelectorAll('.camBtn').forEach(b=>b.textContent=t); }
+function scanFromFile(readerId, fileInput){
+  const f=fileInput.files && fileInput.files[0]; if(!f) return;
+  const h=new Html5Qrcode(readerId+'_file');
+  h.scanFile(f,false).then(txt=>{ onScan(readerId,txt); h.clear(); })
+    .catch(()=>{ msg('Could not read a QR from that photo. Try a clearer, closer shot.',false); h.clear(); });
+  fileInput.value='';
+}
+function onScan(readerId, txt){
+  scanned=txt;
+  if(readerId==='reader_po') poLookup(txt);
+  else if(readerId==='reader_wh') whLookup(txt);
+  else if(readerId==='reader_dp') dpLookup(txt);
+  else if(readerId==='reader_or') orLookup(txt);
+  else if(readerId==='reader_ox') oxLookup(txt);
+}
+
+/* ============ PRODUCTION PRINT ============ */
+function prodTab(t){
+  el('tabPrint').classList.toggle('active',t==='print');
+  el('tabOut').classList.toggle('active',t==='out');
+  el('prodPrint').classList.toggle('hidden',t!=='print');
+  el('prodOut').classList.toggle('hidden',t!=='out');
+  if(t!=='out') stopCam();
+}
+async function loadItems(){
+  const r=await api('listItemsForPrint',{session:SESSION});
+  if(!r.ok){el('prodMsg').innerHTML='<div class="msg err">'+r.msg+'</div>';return;}
+  ALL_ITEMS=r.items; renderList();
+}
+function filtered(){
+  const q=(el('search').value||'').toLowerCase(), c=el('catFilter').value;
+  return ALL_ITEMS.filter(it=>{ let cat=''; try{cat=(JSON.parse(it.payload).c)||'';}catch(e){}
+    return (!c||cat===c)&&(!q||(it.name+' '+it.sku).toLowerCase().includes(q)); });
+}
+function renderList(){
+  const rows=filtered().map(it=>{ let cat=''; try{cat=(JSON.parse(it.payload).c)||'';}catch(e){}
+    const cls=cat==='Bakery'?'catBK':cat==='Icing'?'catIC':'catHK';
+    return '<tr><td><input type="checkbox" class="rowchk" value="'+it.id+'" style="width:auto;margin:0;"></td>'+
+      '<td>'+it.sku+'</td><td>'+it.name+' <span class="'+cls+'">•</span></td><td>'+it.unit+'</td>'+
+      '<td><button class="small" onclick=\'printOne("'+it.id+'")\'>Print</button></td></tr>';
+  }).join('');
+  el('itemBody').innerHTML=rows||'<tr><td colspan="5" style="padding:16px;">No items</td></tr>';
+  el('chkAll').checked=false;
+}
+function toggleAll(cb){document.querySelectorAll('.rowchk').forEach(c=>c.checked=cb.checked);}
+function printOne(id){const it=ALL_ITEMS.find(x=>x.id===id); if(it)printLabels([it]);}
+function printSelected(){
+  const ids=[...document.querySelectorAll('.rowchk:checked')].map(c=>c.value);
+  if(!ids.length){el('prodMsg').innerHTML='<div class="msg err">Select at least one item</div>';return;}
+  printLabels(ALL_ITEMS.filter(it=>ids.includes(it.id)));
+}
+function printAllFiltered(){printLabels(filtered());}
+function testPrint(){printLabels([{id:'ITM-TEST-001',name:'TEST LABEL — Alignment',sku:'TEST-001',unit:'Piece',
+  payload:JSON.stringify({id:'ITM-TEST-001',n:'TEST',s:'TEST-001',b:'Piece',c:'Bakery'})}]);}
+function printLabels(items){
+  const stage=el('qrStage'); stage.innerHTML=''; const labels=[];
+  items.forEach(it=>{const h=document.createElement('div'); stage.appendChild(h);
+    new QRCode(h,{text:it.payload,width:170,height:170,correctLevel:QRCode.CorrectLevel.H}); labels.push({it,h});});
+  setTimeout(()=>{
+    let html='<html><head><title>QR Labels</title><style>'+
+      '@page{size:100mm 50mm;margin:0;}*{margin:0;padding:0;box-sizing:border-box;}'+
+      'body{font-family:Arial,Helvetica,sans-serif;}'+
+      '.lbl{width:100mm;height:50mm;padding:3mm;display:flex;align-items:center;gap:3mm;'+
+      'page-break-after:always;overflow:hidden;}.lbl:last-child{page-break-after:auto;}'+
+      '.qr{width:42mm;height:42mm;flex:0 0 42mm;}.qr img,.qr canvas{width:42mm;height:42mm;}'+
+      '.i{flex:1;min-width:0;}.nm{font-size:15pt;font-weight:bold;line-height:1.1;margin-bottom:2mm;'+
+      'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}'+
+      '.sk{font-size:12pt;margin-bottom:1.5mm;}.un{font-size:11pt;color:#333;margin-bottom:1.5mm;}'+
+      '.id{font-size:9pt;font-weight:bold;margin-top:2mm;}</style></head><body>';
+    labels.forEach(({it,h})=>{const img=h.querySelector('img')||h.querySelector('canvas');
+      const src=img.tagName==='IMG'?img.src:img.toDataURL();
+      html+='<div class="lbl"><div class="qr"><img src="'+src+'"></div><div class="i">'+
+        '<div class="nm">'+it.name+'</div><div class="sk">SKU: '+it.sku+'</div>'+
+        '<div class="un">Unit: '+it.unit+'</div><div class="id">'+it.id+'</div></div></div>';});
+    html+='</body></html>';
+    const w=window.open('','_blank'); w.document.write(html); w.document.close();
+    setTimeout(()=>{w.focus();w.print();},450);
+  },500);
+}
+
+/* ============ PRODUCTION OUT ============ */
+async function poLookup(txt){
+  const r=await api('lookupItem',{session:SESSION,scan:txt});
+  if(!r.ok){el('poFetched').innerHTML='<div class="msg err">'+r.msg+'</div>';hide('poForm');return;}
+  el('poFetched').innerHTML=fetchedCard(r.item); show('poForm'); el('poQty').value=''; el('poQty').focus();
+}
+async function submitProdOut(){
+  const q=el('poQty').value; if(!q||Number(q)<=0){msg('Enter a valid quantity',false);return;}
+  const r=await api('productionOut',{session:SESSION,scan:scanned,qty:q});
+  if(r.ok){ feed('poFeed',r.msg); el('poFetched').innerHTML=''; hide('poForm'); } else msg(r.msg,false);
+}
+
+/* ============ WAREHOUSE ============ */
+async function whLookup(txt){
+  const r=await api('warehouseLookup',{session:SESSION,scan:txt});
+  if(!r.ok){el('whFetched').innerHTML='<div class="msg err">'+r.msg+'</div>';hide('whForm');return;}
+  el('whFetched').innerHTML=fetchedCard(r.item,'Receivable: <b>'+r.receivable+'</b>');
+  show('whForm'); el('whQty').value=r.receivable; el('whQty').focus();
+}
+async function submitWhReceive(){
+  const q=el('whQty').value;
+  const r=await api('warehouseReceive',{session:SESSION,scan:scanned,qty:q});
+  if(r.ok){ feed('whFeed',r.msg); el('whFetched').innerHTML=''; hide('whForm'); } else msg(r.msg,false);
+}
+
+/* ============ DISPATCH ============ */
+function dispOutletChanged(){ const o=el('dispOutlet').value; el('dispScanArea').classList.toggle('hidden',!o); if(!o) stopCam(); }
+async function dpLookup(txt){
+  if(!el('dispOutlet').value){msg('Select an outlet first',false);return;}
+  const r=await api('lookupItem',{session:SESSION,scan:txt});
+  if(!r.ok){el('dpFetched').innerHTML='<div class="msg err">'+r.msg+'</div>';hide('dpForm');return;}
+  el('dpFetched').innerHTML=fetchedCard(r.item,'In stock: <b>'+r.item.qty+'</b>');
+  show('dpForm'); el('dpQty').value=''; el('dpQty').focus();
+}
+async function submitDispatch(){
+  const o=el('dispOutlet').value, q=el('dpQty').value;
+  if(!q||Number(q)<=0){msg('Enter a valid quantity',false);return;}
+  const r=await api('dispatchScan',{session:SESSION,scan:scanned,outlet:o,qty:q});
+  if(r.ok){ feed('dpFeed',r.msg); el('dpFetched').innerHTML=''; hide('dpForm'); } else msg(r.msg,false);
+}
+
+/* ============ OUTLET ============ */
+function outletTab(t){
+  el('tabRecv').classList.toggle('active',t==='recv');
+  el('tabXfer').classList.toggle('active',t==='xfer');
+  el('outletRecv').classList.toggle('hidden',t!=='recv');
+  el('outletXfer').classList.toggle('hidden',t!=='xfer');
+  stopCam();
+}
+async function orLookup(txt){
+  const r=await api('outletLookup',{session:SESSION,scan:txt});
+  if(!r.ok){el('orFetched').innerHTML='<div class="msg err">'+r.msg+'</div>';hide('orForm');return;}
+  el('orFetched').innerHTML=fetchedCard(r.item,'Sent to you: <b>'+r.receivable+'</b>');
+  show('orForm'); el('orQty').value=r.receivable; el('orQty').focus();
+}
+async function submitOutletReceive(){
+  const q=el('orQty').value;
+  const r=await api('outletReceive',{session:SESSION,scan:scanned,qty:q});
+  if(r.ok){ feed('orFeed',r.msg); el('orFetched').innerHTML=''; hide('orForm'); } else msg(r.msg,false);
+}
+async function oxLookup(txt){
+  const r=await api('lookupItem',{session:SESSION,scan:txt});
+  if(!r.ok){el('oxFetched').innerHTML='<div class="msg err">'+r.msg+'</div>';hide('oxForm');return;}
+  el('oxFetched').innerHTML=fetchedCard(r.item,'Your stock: <b>'+r.item.qty+'</b>');
+  show('oxForm'); el('oxQty').value=''; el('oxQty').focus();
+}
+async function submitOutletTransfer(){
+  const o=el('xferOutlet').value, q=el('oxQty').value;
+  if(!q||Number(q)<=0){msg('Enter a valid quantity',false);return;}
+  const r=await api('outletTransfer',{session:SESSION,scan:scanned,outlet:o,qty:q});
+  msg(r.msg,r.ok); if(r.ok){el('oxFetched').innerHTML='';hide('oxForm');}
+}
+
+/* ============ SHARED ============ */
+function fetchedCard(it, extra){
+  return '<div class="fetched"><b>'+it.name+'</b><br>SKU: '+it.sku+' · Unit: '+it.unit+
+    (extra?('<br>'+extra):'')+'</div>';
+}
+function feed(id, line){ const box=el(id); const d=document.createElement('div'); d.innerHTML='✅ '+line; box.insertBefore(d, box.firstChild); }
+async function loadOutlets(selId, withBlank){
+  const r=await api('listOutlets',{});
+  const list=(r&&r.outlets)?r.outlets:[];
+  el(selId).innerHTML=(withBlank?'<option value="">— Select outlet —</option>':'')+
+    list.map(o=>'<option value="'+o.code+'">'+o.code+' — '+o.name+'</option>').join('');
+}
+function logout(){ stopCam(); SESSION=null; hide('appView'); show('loginView'); el('lpw').value=''; }
+</script>
+</body>
+</html>
