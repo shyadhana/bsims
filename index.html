@@ -359,10 +359,10 @@ async function submitWhReceive(){
 function dispOutletChanged(){ const o=el('dispOutlet').value; el('dispScanArea').classList.toggle('hidden',!o); if(!o) stopCam(); }
 async function dpLookup(txt){
   if(!el('dispOutlet').value){msg('Select an outlet first',false);return;}
-  const r=await api('lookupItem',{session:SESSION,scan:txt});
-  if(!r.ok){el('dpFetched').innerHTML='<div class="msg err">'+r.msg+'</div>';hide('dpForm');return;}
-  el('dpFetched').innerHTML=fetchedCard(r.item,'In stock: <b>'+r.item.qty+'</b>');
-  show('dpForm'); el('dpQty').value=''; el('dpQty').focus();
+  const o=el('dispOutlet').value;
+  const r=await api('dispatchScan',{session:SESSION,scan:txt,outlet:o,qty:1});
+  if(r.ok){ feed('dpFeed', r.msg); el('dpFetched').innerHTML=''; }
+  else { el('dpFetched').innerHTML='<div class="msg err">'+r.msg+'</div>'; }
 }
 async function submitDispatch(){
   const o=el('dispOutlet').value, q=el('dpQty').value;
@@ -380,11 +380,11 @@ function outletTab(t){
   stopCam();
 }
 async function orLookup(txt){
-  const r=await api('outletLookup',{session:SESSION,scan:txt});
-  if(!r.ok){el('orFetched').innerHTML='<div class="msg err">'+r.msg+'</div>';hide('orForm');return;}
-  el('orFetched').innerHTML=fetchedCard(r.item,'Sent to you: <b>'+r.receivable+'</b>');
-  show('orForm'); el('orQty').value=r.receivable; el('orQty').focus();
+  const r=await api('outletReceive',{session:SESSION,scan:txt,qty:1});
+  if(r.ok){ feed('orFeed', r.msg); el('orFetched').innerHTML=''; }
+  else { el('orFetched').innerHTML='<div class="msg err">'+r.msg+'</div>'; }
 }
+
 async function submitOutletReceive(){
   const q=el('orQty').value;
   const r=await api('outletReceive',{session:SESSION,scan:scanned,qty:q});
